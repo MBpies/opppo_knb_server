@@ -8,7 +8,7 @@ from sqlalchemy import create_engine
 # глобальные переменные
 app = Flask(__name__)
 json = FlaskJSON(app)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///C:\\Python_proj\\knb_server\\test.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///C:\\Python_proj\\knb_server\\test.db'  # !!исправьте под себя!!
 db = SQLAlchemy(app)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = "False"
 
