@@ -3,7 +3,6 @@ from flask import Flask, request
 from datetime import datetime
 from flask_json import FlaskJSON, JsonError, json_response, as_json
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import create_engine
 
 # глобальные переменные
 app = Flask(__name__)
