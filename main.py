@@ -66,7 +66,6 @@ def auth():
             return json_response(status_=401, type="authorization", status="login error")
 
 
-# uuid.uuid4()
 @app.route('/lobby', methods=['POST'])
 def lobby():
     content = request.get_json()
@@ -102,6 +101,7 @@ def waiting_lobby():
     checker = User.query.filter_by(username=content['userId']).first()
     if checker is None:  # проверка существует ли указанный логин
         return json_response(status_=401, type=content['type'], status="invalid login")
+
     if content['type'] == "createLobby":
         gameLobby = Lobby(content['gameID'], content['userId'])
         if gameLobby in availableLobbyList:  # если лобби висит в списке доступных, значит игрок все еще не найден
