@@ -2,7 +2,7 @@ import uuid
 
 import werkzeug
 from flask import Flask, request
-from flask_json import FlaskJSON, JsonError, json_response, as_json
+from flask_json import FlaskJSON, json_response
 from flask_sqlalchemy import SQLAlchemy
 
 # глобальные переменные
@@ -12,7 +12,7 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///C:\\Python_proj\\knb_server\\
 db = SQLAlchemy(app)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = "False"
 
-availablelobbyList = []
+availableLobbyList = []
 lobbyList = []
 availablePlayers = []
 
@@ -20,8 +20,8 @@ availablePlayers = []
 class Lobby():
     def __init__(self, lobbyId, lobbyPLayer1, lobbyPLayer2=None):  # коструктор
         self.lobbyId = lobbyId
-        self.lobbyPLayer1 = lobbyPLayer1
-        self.lobbyPLayer2 = lobbyPLayer2
+        self.lobbyPLayer1 = lobbyPLayer1  # игрок 1 тот кто создает лобби
+        self.lobbyPLayer2 = lobbyPLayer2  # игрок 2 тот кто подключается
 
     def __eq__(self, other):  # нужна для поиска в листе
         assert isinstance(other, Lobby)  # является ли экземпляром класса
@@ -73,29 +73,63 @@ def lobby():
     checker = User.query.filter_by(username=content['userId']).first()
     if checker is None:  # проверка существует ли указанный логин
         return json_response(status_=401, type=content['type'], status="invalid login")
-    if content['type'] == "createLobby":
-        lobby = Lobby(uuid.uuid4(), content['userId'])
-        if not availablePlayers:  # нет доступных игроков
-            availablelobbyList.append(lobby)
-            return "you have to wait"  # http 202
-        lobby.lobbyPLayer2 = availablePlayers[0]
-        lobbyList.append(lobby)
-        return "game assembled"  # http 200
-    if content['type'] == "connectToLobby":
-        if not availablelobbyList:  # нет доступных лобби
-            availablePlayers.append(content['userId'])
-            return "you have to wait"  # http 202
-        lobby = availablelobbyList[0]
-        availablelobbyList.remove(lobby)
-        lobby.lobbyPLayer2 = content['userId']
-        lobbyList.append(lobby)
-        return "game assembled"  # http 200
 
+    if content['type'] == "createLobby":
+        gameLobby = Lobby(str(uuid.uuid4()), content['userId'])
+        if not availablePlayers:  # нет доступных игроков
+            availableLobbyList.append(gameLobby)
+            return json_response(status_=202, type="createLobby", status="waiting for players",
+                                 gameID=gameLobby.lobbyId)
+        gameLobby.lobbyPLayer2 = availablePlayers[0]
+        availablePlayers.remove(gameLobby.lobbyPLayer2)
+        lobbyList.append(gameLobby)
+        return json_response(status_=200, type="createLobby", status="ok", gameID=gameLobby.lobbyId)
+
+    if content['type'] == "connectToLobby":
+        if not availableLobbyList:  # нет доступных лобби
+            availablePlayers.append(content['userId'])
+            return json_response(status_=202, type="connectToLobby", status="waiting for lobby")
+        gameLobby = availableLobbyList[0]
+        availableLobbyList.remove(gameLobby)
+        gameLobby.lobbyPLayer2 = content['userId']
+        lobbyList.append(gameLobby)
+        return json_response(status_=200, type="connectToLobby", status="ok", gameID=gameLobby.lobbyId)
+
+
+@app.route('/waiting_lobby', methods=['POST'])
+def waiting_lobby():
+    content = request.get_json()
+    checker = User.query.filter_by(username=content['userId']).first()
+    if checker is None:  # проверка существует ли указанный логин
+        return json_response(status_=401, type=content['type'], status="invalid login")
+    if content['type'] == "createLobby":
+        gameLobby = Lobby(content['gameID'], content['userId'])
+        if gameLobby in availableLobbyList:  # если лобби висит в списке доступных, значит игрок все еще не найден
+            return json_response(status_=202, type="createLobby", status="waiting for players",
+                                 gameID=content['gameID'])
+        gameLobby = lobbyList[lobbyList.index(gameLobby)]  # вытягиваем обновленное лобби с игроком
+        return json_response(status_=200, type="connectToLobby", status="ok", gameID=gameLobby.lobbyId,
+                             opponent=gameLobby.lobbyPLayer2)
+
+    if content['type'] == "connectToLobby":
+        if not availableLobbyList:  # нет доступных лобби
+            availablePlayers.append(content['userId'])
+            return json_response(status_=202, type="connectToLobby", status="waiting for lobby")
+        gameLobby = availableLobbyList[0]
+        availableLobbyList.remove(gameLobby)
+        gameLobby.lobbyPLayer2 = content['userId']
+        lobbyList.append(gameLobby)
+        availablePlayers.remove(content['userId'])
+        return json_response(status_=200, type="connectToLobby", status="ok", gameID=gameLobby.lobbyId,
+                             opponent=gameLobby.lobbyPLayer1)
+
+
+# боже незабудь пожалуйста добавить обработку выхода из очереди
 
 @app.route('/dev', methods=['POST'])
 def dev():
     print(lobbyList)
-    print(availablelobbyList)
+    print(availableLobbyList)
     print(availablePlayers)
     return 'huh'
 
