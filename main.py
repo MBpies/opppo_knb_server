@@ -1,3 +1,5 @@
+import uuid
+
 import werkzeug
 from flask import Flask, request
 from flask_json import FlaskJSON, JsonError, json_response, as_json
@@ -9,12 +11,27 @@ json = FlaskJSON(app)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///C:\\Python_proj\\knb_server\\test.db'  # !!исправьте под себя!!
 db = SQLAlchemy(app)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = "False"
+
+availablelobbyList = []
 lobbyList = []
 availablePlayers = []
 
 
 class Lobby():
-    lobbyId = 0
+    def __init__(self, lobbyId, lobbyPLayer1, lobbyPLayer2=None):  # коструктор
+        self.lobbyId = lobbyId
+        self.lobbyPLayer1 = lobbyPLayer1
+        self.lobbyPLayer2 = lobbyPLayer2
+
+    def __eq__(self, other):  # нужна для поиска в листе
+        assert isinstance(other, Lobby)  # является ли экземпляром класса
+        return self.lobbyId == other.lobbyId  # сравниваем по айдишникам
+
+    def __repr__(self):
+        return '[' + str(self.lobbyId) + ' ' + str(self.lobbyPLayer1) + ' ' + str(self.lobbyPLayer2) + ']'
+
+    def __str__(self):
+        return '[' + str(self.lobbyId) + ' ' + str(self.lobbyPLayer1) + ' ' + str(self.lobbyPLayer2) + ']'
 
 
 class User(db.Model):
@@ -49,13 +66,38 @@ def auth():
             return json_response(status_=401, type="authorization", status="login error")
 
 
+# uuid.uuid4()
 @app.route('/lobby', methods=['POST'])
 def lobby():
     content = request.get_json()
+    checker = User.query.filter_by(username=content['userId']).first()
+    if checker is None:  # проверка существует ли указанный логин
+        return json_response(status_=401, type=content['type'], status="invalid login")
     if content['type'] == "createLobby":
-        return " error"
+        lobby = Lobby(uuid.uuid4(), content['userId'])
+        if not availablePlayers:  # нет доступных игроков
+            availablelobbyList.append(lobby)
+            return "you have to wait"  # http 202
+        lobby.lobbyPLayer2 = availablePlayers[0]
+        lobbyList.append(lobby)
+        return "game assembled"  # http 200
     if content['type'] == "connectToLobby":
-        return " error"
+        if not availablelobbyList:  # нет доступных лобби
+            availablePlayers.append(content['userId'])
+            return "you have to wait"  # http 202
+        lobby = availablelobbyList[0]
+        availablelobbyList.remove(lobby)
+        lobby.lobbyPLayer2 = content['userId']
+        lobbyList.append(lobby)
+        return "game assembled"  # http 200
+
+
+@app.route('/dev', methods=['POST'])
+def dev():
+    print(lobbyList)
+    print(availablelobbyList)
+    print(availablePlayers)
+    return 'huh'
 
 
 # Обработка ошибок
