@@ -124,7 +124,39 @@ def waiting_lobby():
                              opponent=gameLobby.lobbyPLayer1)
 
 
-# боже незабудь пожалуйста добавить обработку выхода из очереди
+@app.route('/waiting_leave', methods=['POST'])
+def waiting_leave():
+    content = request.get_json()
+    checker = User.query.filter_by(username=content['userId']).first()
+    if checker is None:  # проверка существует ли указанный логин
+        return json_response(status_=401, type=content['type'], status="invalid login")
+    if content['type'] == "createLobby":
+        gameLobby = Lobby(content['gameID'], content['userId'])
+        if gameLobby in availableLobbyList:
+            availableLobbyList.remove(gameLobby)
+            return json_response(status_=200, type="createLobby", status="ok")
+        if gameLobby in lobbyList:
+            gameLobby = lobbyList[lobbyList.index(gameLobby)]
+            gameLobby.lobbyPLayer1 = None
+            lobbyList[lobbyList.index(gameLobby)] = gameLobby
+            return json_response(status_=200, type="createLobby", status="ok")
+    if content['type'] == "connectToLobby":
+        availablePlayers.remove(content['userId'])
+        return json_response(status_=200, type="connectToLobby", status="ok")
+
+
+@app.route('/am_i_abandoned', methods=['POST'])
+def am_i_abandoned():
+    content = request.get_json()
+    checker = User.query.filter_by(username=content['userId']).first()
+    if checker is None:  # проверка существует ли указанный логин
+        return json_response(status_=401, type=content['type'], status="invalid login")
+    gameLobby = Lobby(content['gameID'], content['userId'])
+    gameLobby = lobbyList[lobbyList.index(gameLobby)]
+    if gameLobby.lobbyPLayer1 == None or gameLobby.lobbyPLayer2 == None:
+        return json_response(status_=410, type=content['type'], status="you are alone")
+    return json_response(status_=200, type=content['type'], status="you not not alone")
+
 
 @app.route('/dev', methods=['POST'])
 def dev():
