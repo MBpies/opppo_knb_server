@@ -4,6 +4,7 @@ import werkzeug
 from flask import Flask, request
 from flask_json import FlaskJSON, json_response
 from flask_sqlalchemy import SQLAlchemy
+from random import randint
 
 # глобальные переменные
 app = Flask(__name__)
@@ -12,9 +13,8 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///C:\\Python_proj\\knb_server\\
 db = SQLAlchemy(app)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = "False"
 
-availableLobbyList = []
 lobbyList = []
-availablePlayers = []
+
 
 
 class Lobby():
@@ -22,6 +22,9 @@ class Lobby():
         self.lobbyId = lobbyId
         self.lobbyPLayer1 = lobbyPLayer1  # игрок 1 тот кто создает лобби
         self.lobbyPLayer2 = lobbyPLayer2  # игрок 2 тот кто подключается
+
+    def hasName(self, name):
+        return self.lobbyPLayer1 == name
 
     def __eq__(self, other):  # нужна для поиска в листе
         assert isinstance(other, Lobby)  # является ли экземпляром класса
@@ -40,6 +43,19 @@ class User(db.Model):
     password = db.Column(db.String(20), unique=False, nullable=False)
     wins = db.Column(db.Integer, default=0)
     losses = db.Column(db.Integer, default=0)
+
+
+def genRandId():
+    range_start = 10 ** (6 - 1)
+    range_end = (10 ** 6) - 1
+    return randint(range_start, range_end)
+
+
+def searchByName(name):
+    has = False
+    for lob in lobbyList:
+        has = lob.hasName(name)
+    return has
 
 
 # обработка по адресам
@@ -66,103 +82,50 @@ def auth():
             return json_response(status_=401, type="authorization", status="login error")
 
 
-@app.route('/lobby', methods=['POST'])
-def lobby():
+@app.route('/createLobby', methods=['POST'])
+def createLobby():
     content = request.get_json()
     checker = User.query.filter_by(username=content['userId']).first()
     if checker is None:  # проверка существует ли указанный логин
         return json_response(status_=401, type=content['type'], status="invalid login")
 
-    if content['type'] == "createLobby":
-        gameLobby = Lobby(str(uuid.uuid4()), content['userId'])
-        if not availablePlayers:  # нет доступных игроков
-            availableLobbyList.append(gameLobby)
+    if searchByName(content['userId']):
+        gameLobby = Lobby(content['gameID'], content['userId'])  # создаем пустышку для поиска
+        id = lobbyList.index(gameLobby)
+        gameLobby = lobbyList[id]  # находим оригинал
+        if gameLobby.lobbyPLayer2 is None:
             return json_response(status_=202, type="createLobby", status="waiting for players",
                                  gameID=gameLobby.lobbyId)
-        gameLobby.lobbyPLayer2 = availablePlayers[0]
-        availablePlayers.remove(gameLobby.lobbyPLayer2)
-        lobbyList.append(gameLobby)
-        return json_response(status_=200, type="createLobby", status="ok", gameID=gameLobby.lobbyId)
+        else:
+            return json_response(status_=200, type="createLobby", status="ok", gameID=gameLobby.lobbyId,
+                                 opponent=gameLobby.lobbyPLayer2)
 
-    if content['type'] == "connectToLobby":
-        if not availableLobbyList:  # нет доступных лобби
-            availablePlayers.append(content['userId'])
-            return json_response(status_=202, type="connectToLobby", status="waiting for lobby")
-        gameLobby = availableLobbyList[0]
-        availableLobbyList.remove(gameLobby)
-        gameLobby.lobbyPLayer2 = content['userId']
-        lobbyList.append(gameLobby)
-        return json_response(status_=200, type="connectToLobby", status="ok", gameID=gameLobby.lobbyId)
+    gameLobby = Lobby(str(genRandId()), content['userId'])
+    lobbyList.append(gameLobby)
+    return json_response(status_=202, type="createLobby", status="waiting for players", gameID=gameLobby.lobbyId)
 
 
-@app.route('/waiting_lobby', methods=['POST'])
-def waiting_lobby():
+@app.route('/connectToLobby', methods=['POST'])
+def connectToLobby():
     content = request.get_json()
     checker = User.query.filter_by(username=content['userId']).first()
     if checker is None:  # проверка существует ли указанный логин
         return json_response(status_=401, type=content['type'], status="invalid login")
+    try:
+        id = lobbyList.index(Lobby(content['gameID'], content['userId']))
+    except ValueError as ve:
+        return json_response(status_=404, type=content['type'], status=ve)
+    gameLobby = lobbyList[id]
+    gameLobby.lobbyPLayer2 = content['userId']
+    lobbyList[id] = gameLobby
+    return json_response(status_=200, type="connectToLobby", status="ok", gameID=gameLobby.lobbyId,
+                         opponent=gameLobby.lobbyPLayer1)
 
-    if content['type'] == "createLobby":
-        gameLobby = Lobby(content['gameID'], content['userId'])
-        if gameLobby in availableLobbyList:  # если лобби висит в списке доступных, значит игрок все еще не найден
-            return json_response(status_=202, type="createLobby", status="waiting for players",
-                                 gameID=content['gameID'])
-        gameLobby = lobbyList[lobbyList.index(gameLobby)]  # вытягиваем обновленное лобби с игроком
-        return json_response(status_=200, type="connectToLobby", status="ok", gameID=gameLobby.lobbyId,
-                             opponent=gameLobby.lobbyPLayer2)
-
-    if content['type'] == "connectToLobby":
-        if not availableLobbyList:  # нет доступных лобби
-            availablePlayers.append(content['userId'])
-            return json_response(status_=202, type="connectToLobby", status="waiting for lobby")
-        gameLobby = availableLobbyList[0]
-        availableLobbyList.remove(gameLobby)
-        gameLobby.lobbyPLayer2 = content['userId']
-        lobbyList.append(gameLobby)
-        availablePlayers.remove(content['userId'])
-        return json_response(status_=200, type="connectToLobby", status="ok", gameID=gameLobby.lobbyId,
-                             opponent=gameLobby.lobbyPLayer1)
-
-
-@app.route('/waiting_leave', methods=['POST'])
-def waiting_leave():
-    content = request.get_json()
-    checker = User.query.filter_by(username=content['userId']).first()
-    if checker is None:  # проверка существует ли указанный логин
-        return json_response(status_=401, type=content['type'], status="invalid login")
-    if content['type'] == "createLobby":
-        gameLobby = Lobby(content['gameID'], content['userId'])
-        if gameLobby in availableLobbyList:
-            availableLobbyList.remove(gameLobby)
-            return json_response(status_=200, type="createLobby", status="ok")
-        if gameLobby in lobbyList:
-            gameLobby = lobbyList[lobbyList.index(gameLobby)]
-            gameLobby.lobbyPLayer1 = None
-            lobbyList[lobbyList.index(gameLobby)] = gameLobby
-            return json_response(status_=200, type="createLobby", status="ok")
-    if content['type'] == "connectToLobby":
-        availablePlayers.remove(content['userId'])
-        return json_response(status_=200, type="connectToLobby", status="ok")
-
-
-@app.route('/am_i_abandoned', methods=['POST'])
-def am_i_abandoned():
-    content = request.get_json()
-    checker = User.query.filter_by(username=content['userId']).first()
-    if checker is None:  # проверка существует ли указанный логин
-        return json_response(status_=401, type=content['type'], status="invalid login")
-    gameLobby = Lobby(content['gameID'], content['userId'])
-    gameLobby = lobbyList[lobbyList.index(gameLobby)]
-    if gameLobby.lobbyPLayer1 == None or gameLobby.lobbyPLayer2 == None:
-        return json_response(status_=410, type=content['type'], status="you are alone")
-    return json_response(status_=200, type=content['type'], status="you not not alone")
 
 
 @app.route('/dev', methods=['POST'])
 def dev():
     print(lobbyList)
-    print(availableLobbyList)
-    print(availablePlayers)
     return 'huh'
 
 
