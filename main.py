@@ -114,7 +114,7 @@ def connectToLobby():
     try:
         id = lobbyList.index(Lobby(content['gameID'], content['userId']))
     except ValueError as ve:
-        return json_response(status_=404, type=content['type'], status=ve)
+        return json_response(status_=404, type=content['type'], status="no such lobby")
     gameLobby = lobbyList[id]
     gameLobby.lobbyPLayer2 = content['userId']
     lobbyList[id] = gameLobby
