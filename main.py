@@ -16,15 +16,18 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = "False"
 lobbyList = []
 
 
-
 class Lobby():
-    def __init__(self, lobbyId, lobbyPLayer1, lobbyPLayer2=None):  # коструктор
+    def __init__(self, lobbyId, lobbyPLayer1, lobbyPLayer2=None, answPl1=None, answPl2=None):  # коструктор
         self.lobbyId = lobbyId
         self.lobbyPLayer1 = lobbyPLayer1  # игрок 1 тот кто создает лобби
         self.lobbyPLayer2 = lobbyPLayer2  # игрок 2 тот кто подключается
+        self.answPl1 = answPl1
+        self.answPl2 = answPl2
 
     def hasName(self, name):
-        return self.lobbyPLayer1 == name
+        if self.lobbyPLayer1 == name:
+            return self
+        return None
 
     def __eq__(self, other):  # нужна для поиска в листе
         assert isinstance(other, Lobby)  # является ли экземпляром класса
@@ -52,10 +55,42 @@ def genRandId():
 
 
 def searchByName(name):
-    has = False
+    has = None
     for lob in lobbyList:
         has = lob.hasName(name)
+        if has is not None:
+            return has
     return has
+
+
+def didFirstPLayerWon(ans1, ans2):  # 1-камень, 2-ножницы, 3-бумага.
+    if ans1 == 1 and ans2 == 1:
+        return "even"
+    if ans1 == 2 and ans2 == 2:
+        return "even"
+    if ans1 == 3 and ans2 == 3:
+        return "even"
+    if ans1 == 1 and ans2 == 2:
+        return "won"
+    if ans1 == 2 and ans2 == 3:
+        return "won"
+    if ans1 == 3 and ans2 == 1:
+        return "won"
+    if ans1 == 1 and ans2 == 3:
+        return "lost"
+    if ans1 == 2 and ans2 == 1:
+        return "lost"
+    if ans1 == 3 and ans2 == 2:
+        return "lost"
+
+
+def figureDecode(fig):
+    if fig == 1:
+        return "rock"
+    if fig == 2:
+        return "scissors"
+    if fig == 3:
+        return "paper"
 
 
 # обработка по адресам
@@ -88,9 +123,9 @@ def createLobby():
     checker = User.query.filter_by(username=content['userId']).first()
     if checker is None:  # проверка существует ли указанный логин
         return json_response(status_=401, type=content['type'], status="invalid login")
-
-    if searchByName(content['userId']):
-        gameLobby = Lobby(content['gameID'], content['userId'])  # создаем пустышку для поиска
+    gameLobby = searchByName(content['userId'])  # создаем пустышку для поиска
+    if gameLobby is not None:
+        # gameLobby = Lobby(content['gameID'], content['userId'])
         id = lobbyList.index(gameLobby)
         gameLobby = lobbyList[id]  # находим оригинал
         if gameLobby.lobbyPLayer2 is None:
@@ -121,6 +156,89 @@ def connectToLobby():
     return json_response(status_=200, type="connectToLobby", status="ok", gameID=gameLobby.lobbyId,
                          opponent=gameLobby.lobbyPLayer1)
 
+
+def updateThing(user, result):
+    if result == "won":
+        user.wins = user.wins + 1
+        db.session.commit()
+    if result == "lost":
+        user.losses = user.losses + 1
+        db.session.commit()
+
+
+@app.route('/selectAnswer', methods=['POST'])
+def selectAnswer():
+    content = request.get_json()
+    checker = User.query.filter_by(username=content['userId']).first()
+    if checker is None:  # проверка существует ли указанный логин
+        return json_response(status_=401, type=content['type'], status="invalid login")
+    try:  # проверка существует ли лобби
+        id = lobbyList.index(Lobby(content['gameID'], content['userId']))
+    except ValueError as ve:
+        return json_response(status_=404, type=content['type'], status="no such lobby")
+    gameLobby = lobbyList[id]
+
+    if gameLobby.lobbyPLayer1 == content['userId']:
+        gameLobby.answPl1 = content['answerId']
+        lobbyList[id] = gameLobby
+        if gameLobby.lobbyPLayer2 is None:
+            return json_response(status_=404, type="selectAnswer", status="opponent left lobby")
+        if gameLobby.answPl2 is None:
+            return json_response(status_=202, type="selectAnswer", status="waiting for opponent response")
+        else:
+            result = didFirstPLayerWon(gameLobby.answPl1, gameLobby.answPl2)
+            updateThing(checker, result)
+            return json_response(status_=200, type="selectAnswer", status=result,
+                                 opponentAnswer=figureDecode(gameLobby.answPl2))
+
+    elif gameLobby.lobbyPLayer2 == content['userId']:
+        gameLobby.answPl2 = content['answerId']
+        lobbyList[id] = gameLobby
+        if gameLobby.lobbyPLayer1 is None:
+            return json_response(status_=404, type="selectAnswer", status="opponent left lobby")
+        if gameLobby.answPl1 is None:
+            return json_response(status_=202, type="selectAnswer", status="waiting for opponent response")
+        else:
+            result = didFirstPLayerWon(gameLobby.answPl2, gameLobby.answPl1)
+            updateThing(checker, result)
+            return json_response(status_=200, type="selectAnswer", status=result,
+                                 opponentAnswer=figureDecode(gameLobby.answPl1))
+    else:
+        return json_response(status_=401, type="selectAnswer", status="no such player in lobby")
+
+
+@app.route('/exit', methods=['POST'])
+def exit():
+    content = request.get_json()
+    checker = User.query.filter_by(username=content['userId']).first()
+    if checker is None:  # проверка существует ли указанный логин
+        return json_response(status_=401, type=content['type'], status="invalid login")
+    try:  # проверка существует ли лобби
+        id = lobbyList.index(Lobby(content['gameID'], content['userId']))
+    except ValueError as ve:
+        return json_response(status_=404, type=content['type'], status="no such lobby")
+    gameLobby = lobbyList[id]
+    if gameLobby.lobbyPLayer1 == content['userId']:
+        gameLobby.lobbyPLayer1 = None
+        lobbyList[id] = gameLobby
+        if gameLobby.lobbyPLayer2 is None:
+            lobbyList.remove(gameLobby)
+        return json_response(status_=200, type=content['type'], status="successfully left lobby")
+    if gameLobby.lobbyPLayer2 == content['userId']:
+        gameLobby.lobbyPLayer2 = None
+        lobbyList[id] = gameLobby
+        if gameLobby.lobbyPLayer1 is None:
+            lobbyList.remove(gameLobby)
+        return json_response(status_=200, type=content['type'], status="successfully left lobby")
+
+
+@app.route('/stats', methods=['POST'])
+def stats():
+    content = request.get_json()
+    checker = User.query.filter_by(username=content['userId']).first()
+    if checker is None:  # проверка существует ли указанный логин
+        return json_response(status_=401, type=content['type'], status="invalid login")
+    return json_response(status_=200, type=content['type'], wins=checker.wins, losses=checker.losses)
 
 
 @app.route('/dev', methods=['POST'])
