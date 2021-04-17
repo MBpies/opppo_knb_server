@@ -230,6 +230,7 @@ def exit():
         if gameLobby.lobbyPLayer1 is None:
             lobbyList.remove(gameLobby)
         return json_response(status_=200, type=content['type'], status="successfully left lobby")
+    return json_response(status_=200, type=content['type'], status="you are not in this lobby")
 
 
 @app.route('/stats', methods=['POST'])
